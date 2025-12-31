@@ -20,7 +20,7 @@ def log(file, message):
 def check_shell_history():
     try:
         with open(BASH_HISTORY, "r") as f:
-            lines = f.readlines()[-10:]
+            lines = f.readlines()[-20:]
 
         for line in lines:
             line = line.strip()
@@ -28,15 +28,17 @@ def check_shell_history():
             if not line or line in seen_history:
                 continue
 
-            if "curl" in line and "|" in line and ("bash" in line or "sh" in line):
-                log(
-                    ALERT_LOG,
-                    f"[HIGH] shell | curl piped to shell (possible remote code execution) | {line}"
-                )
-                seen_history.add(line)
+            if "|" in line:
+                if ("curl" in line or "wget" in line) and ("bash" in line or "sh" in line):
+                    log(
+                        ALERT_LOG,
+                        f"[HIGH] shell | remote command execution via pipe | {line}"
+                    )
+                    seen_history.add(line)
 
     except Exception:
         pass
+
 
 def monitor_processes():
     while True:
