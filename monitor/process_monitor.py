@@ -10,6 +10,9 @@ ALERT_LOG = "logs/alerts.log"
 
 BASH_HISTORY = os.path.expanduser("~/.bash_history")
 
+seen_pids = set()
+seen_history = set()
+
 def log(file, message):
     with open(file, "a") as f:
         f.write(message + "\n")
@@ -17,52 +20,64 @@ def log(file, message):
 def check_shell_history():
     try:
         with open(BASH_HISTORY, "r") as f:
-            lines = f.readlines()[-5:]
+            lines = f.readlines()[-10:]
 
         for line in lines:
-            if "curl" in line and "|" in line and "bash" in line:
-                log(ALERT_LOG, f"[HIGH] shell | curl piped to bash | {line.strip()}")
+            line = line.strip()
 
-    except:
+            if not line or line in seen_history:
+                continue
+
+            if "curl" in line and "|" in line and ("bash" in line or "sh" in line):
+                log(
+                    ALERT_LOG,
+                    f"[HIGH] shell | curl piped to shell (possible remote code execution) | {line}"
+                )
+                seen_history.add(line)
+
+    except Exception:
         pass
 
-
 def monitor_processes():
-    seen_pids = set()
-
     while True:
         check_shell_history()
+
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
                 pid = proc.info['pid']
                 name = proc.info['name']
-                cmdline_list = proc.info['cmdline']
+                cmdline = proc.info['cmdline']
 
-                if not cmdline_list:
+                if not cmdline:
                     continue
-
-                cmd = " ".join(cmdline_list)
 
                 if pid in seen_pids:
                     continue
 
                 seen_pids.add(pid)
 
+                cmd = " ".join(cmdline)
+
                 log(PROCESS_LOG, f"{pid} | {name} | {cmd}")
 
-                if is_lolbin(name):
-                    if is_noise(cmd):
-                        continue
+                if not is_lolbin(name):
+                    continue
 
-                    parsed = parse_command(cmd)
-                    severity, reason = detect_malicious(name, parsed)
+                if is_noise(cmd):
+                    continue
 
-                    if severity == "INFO":
-                        log(INFO_LOG, f"[INFO] {name} | {parsed}")
-                    else:
-                        log(ALERT_LOG, f"[{severity}] {name} | {reason} | {parsed}")
+                parsed = parse_command(cmd)
+                severity, reason = detect_malicious(name, parsed)
+
+                if severity == "INFO":
+                    log(INFO_LOG, f"[INFO] {name} | {parsed}")
+                else:
+                    log(ALERT_LOG, f"[{severity}] {name} | {reason} | {parsed}")
 
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
         time.sleep(0.3)
+
+if __name__ == "__main__":
+    monitor_processes()
