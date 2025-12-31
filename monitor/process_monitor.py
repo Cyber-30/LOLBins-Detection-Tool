@@ -78,17 +78,26 @@ def detect_process_chain(now, name):
     if name not in ("bash", "sh"):
         return False
 
-    for t, pname, _ in reversed(recent_processes):
+    for t, pname, pcmd in reversed(recent_processes):
         if now - t > 2:
             break
 
         if pname in ("curl", "wget"):
-            key = f"{pname}->{name}"
-            if key not in alerted_chains:
-                alerted_chains.add(key)
-                return True
+            # Require execution intent
+            if (
+                "| bash" in pcmd
+                or "| sh" in pcmd
+                or "-O-" in pcmd
+                or "--silent" in pcmd
+                or "payload" in pcmd
+            ):
+                key = f"{pname}->{name}"
+                if key not in alerted_chains:
+                    alerted_chains.add(key)
+                    return True
 
     return False
+
 
 
 def monitor_processes():
