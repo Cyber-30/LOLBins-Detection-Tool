@@ -2,13 +2,14 @@ import psutil
 import os
 import time
 from collections import deque
-
+from monitor.rules import map_mitre
 from monitor.command_parser import parse_command
 from monitor.rules import is_lolbin, is_noise, detect_malicious
 
 PROCESS_LOG = "logs/process.log"
 INFO_LOG = "logs/info.log"
 ALERT_LOG = "logs/alerts.log"
+mitre = map_mitre(signals)
 
 BASH_HISTORY = os.path.expanduser("~/.bash_history")
 

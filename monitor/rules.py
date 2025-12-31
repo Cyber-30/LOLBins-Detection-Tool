@@ -11,8 +11,10 @@ IGNORED_KEYWORDS = [
     "--init-file"
 ]
 
+
 def is_lolbin(binary):
     return binary in LOLBINS
+
 
 def is_noise(cmd):
     for keyword in IGNORED_KEYWORDS:
@@ -20,35 +22,36 @@ def is_noise(cmd):
             return True
     return False
 
+
 def detect_malicious(binary, parsed_cmd):
     cmd = parsed_cmd["raw"]
 
-    # HIGH: curl piped to any shell
-    if binary == "curl" and parsed_cmd["pipe"]:
-        return "HIGH", "curl piped to shell (possible remote command execution)"
-
-    # LOW: curl downloading file
+    # curl rules
     if binary == "curl":
-        if "-o" in cmd and "http" in cmd:
+        if "-o" in cmd or "-O" in cmd:
             return "LOW", "File downloaded via curl"
 
-    # HIGH: bash reverse shell
+        return "INFO", "curl execution observed"
+
+    # bash rules
     if binary == "bash":
         if "/dev/tcp/" in cmd:
             return "HIGH", "Reverse shell using /dev/tcp"
 
-        if "-i" in cmd:
-            return "LOW", "Interactive bash shell spawned"
+        return "INFO", "bash execution observed"
 
-    # Netcat rules
+    # netcat rules
     if binary == "nc":
         if "-e" in cmd:
-            return "HIGH", "Netcat command execution detected"
+            return "HIGH", "Netcat remote command execution"
 
         if "-l" in cmd:
             return "LOW", "Netcat listening mode"
 
     return "INFO", "Benign LOLBin usage"
+
+
+# ---------------- MITRE ATT&CK ---------------- #
 
 MITRE_MAPPING = {
     "downloader": {
@@ -62,6 +65,14 @@ MITRE_MAPPING = {
     "pipe": {
         "technique": "T1059.004",
         "name": "Unix Shell"
+    },
+    "temporal_chain": {
+        "technique": "T1059",
+        "name": "Command Execution"
+    },
+    "external_url": {
+        "technique": "T1105",
+        "name": "Ingress Tool Transfer"
     }
 }
 
@@ -76,3 +87,17 @@ def map_mitre(signals):
             )
 
     return list(set(techniques))
+
+
+# ---------------- FALSE POSITIVE REDUCTION ---------------- #
+
+TRUSTED_DOMAINS = (
+    "localhost",
+    "127.0.0.1",
+    "example.com",
+    "google.com"
+)
+
+
+def is_trusted_url(url):
+    return any(domain in url for domain in TRUSTED_DOMAINS)
