@@ -1,4 +1,5 @@
 import psutil
+from collections import deque
 import os
 import time
 from monitor.command_parser import parse_command
@@ -8,6 +9,7 @@ PROCESS_LOG = "logs/process.log"
 INFO_LOG = "logs/info.log"
 ALERT_LOG = "logs/alerts.log"
 
+recent_process = deque(max_len=100):
 BASH_HISTORY = os.path.expanduser("~/.bash_history")
 
 seen_pids = set()
