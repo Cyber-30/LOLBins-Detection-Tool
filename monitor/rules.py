@@ -54,39 +54,22 @@ def detect_malicious(binary, parsed_cmd):
 # ---------------- MITRE ATT&CK ---------------- #
 
 MITRE_MAPPING = {
-    "downloader": {
-        "technique": "T1105",
-        "name": "Ingress Tool Transfer"
-    },
-    "shell": {
-        "technique": "T1059",
-        "name": "Command and Scripting Interpreter"
-    },
-    "pipe": {
-        "technique": "T1059.004",
-        "name": "Unix Shell"
-    },
-    "temporal_chain": {
-        "technique": "T1059",
-        "name": "Command Execution"
-    },
-    "external_url": {
-        "technique": "T1105",
-        "name": "Ingress Tool Transfer"
-    }
+    "downloader": ("T1105", "Ingress Tool Transfer"),
+    "shell": ("T1059", "Command and Scripting Interpreter"),
+    "pipe": ("T1059.004", "Unix Shell"),
+    "temporal_chain": ("T1059", "Command and Scripting Interpreter")
 }
 
 
 def map_mitre(signals):
-    techniques = []
+    techniques = set()
 
     for sig in signals:
         if sig in MITRE_MAPPING:
-            techniques.append(
-                f"{MITRE_MAPPING[sig]['technique']} ({MITRE_MAPPING[sig]['name']})"
-            )
+            tid, name = MITRE_MAPPING[sig]
+            techniques.add(f"{tid} ({name})")
 
-    return list(set(techniques))
+    return list(techniques)
 
 
 # ---------------- FALSE POSITIVE REDUCTION ---------------- #

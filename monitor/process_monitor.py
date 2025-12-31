@@ -124,6 +124,9 @@ def monitor_processes():
                 # Parse command
                 parsed = parse_command(cmd)
 
+                # Always log info for the process
+                log(INFO_LOG, f"[INFO] {os.name} | {parsed}")
+
                 # False-positive filtering: skip trusted URLs
                 urls = parsed.get("urls", [])
                 if urls and all(is_trusted_url(u) for u in urls):
