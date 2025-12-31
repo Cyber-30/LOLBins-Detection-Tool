@@ -31,6 +31,7 @@ def monitor_processes():
     seen_pids = set()
 
     while True:
+        check_shell_history()
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
                 pid = proc.info['pid']
