@@ -49,3 +49,30 @@ def detect_malicious(binary, parsed_cmd):
             return "LOW", "Netcat listening mode"
 
     return "INFO", "Benign LOLBin usage"
+
+MITRE_MAPPING = {
+    "downloader": {
+        "technique": "T1105",
+        "name": "Ingress Tool Transfer"
+    },
+    "shell": {
+        "technique": "T1059",
+        "name": "Command and Scripting Interpreter"
+    },
+    "pipe": {
+        "technique": "T1059.004",
+        "name": "Unix Shell"
+    }
+}
+
+
+def map_mitre(signals):
+    techniques = []
+
+    for sig in signals:
+        if sig in MITRE_MAPPING:
+            techniques.append(
+                f"{MITRE_MAPPING[sig]['technique']} ({MITRE_MAPPING[sig]['name']})"
+            )
+
+    return list(set(techniques))
