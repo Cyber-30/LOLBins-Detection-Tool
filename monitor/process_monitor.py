@@ -1,7 +1,8 @@
 import psutil
-from collections import deque
 import os
 import time
+from collections import deque
+
 from monitor.command_parser import parse_command
 from monitor.rules import is_lolbin, is_noise, detect_malicious
 
@@ -9,17 +10,23 @@ PROCESS_LOG = "logs/process.log"
 INFO_LOG = "logs/info.log"
 ALERT_LOG = "logs/alerts.log"
 
-recent_process = deque(max_len=100):
 BASH_HISTORY = os.path.expanduser("~/.bash_history")
 
 seen_pids = set()
 seen_history = set()
+
+# Store recent processes for temporal correlation
+recent_processes = deque(maxlen=100)
 
 def log(file, message):
     with open(file, "a") as f:
         f.write(message + "\n")
 
 def check_shell_history():
+    """
+    Best-effort detection of pipe-based execution using bash history.
+    Not fully reliable, but useful when available.
+    """
     try:
         with open(BASH_HISTORY, "r") as f:
             lines = f.readlines()[-20:]
@@ -30,20 +37,19 @@ def check_shell_history():
             if not line or line in seen_history:
                 continue
 
-            if "|" in line:
-                if ("curl" in line or "wget" in line) and ("bash" in line or "sh" in line):
-                    log(
-                        ALERT_LOG,
-                        f"[HIGH] shell | remote command execution via pipe | {line}"
-                    )
-                    seen_history.add(line)
+            if "|" in line and ("curl" in line or "wget" in line) and ("bash" in line or "sh" in line):
+                log(
+                    ALERT_LOG,
+                    f"[HIGH] shell-history | remote command execution via pipe | {line}"
+                )
+                seen_history.add(line)
 
     except Exception:
         pass
 
-
 def monitor_processes():
     while True:
+        # Best-effort shell telemetry
         check_shell_history()
 
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -52,18 +58,30 @@ def monitor_processes():
                 name = proc.info['name']
                 cmdline = proc.info['cmdline']
 
-                if not cmdline:
-                    continue
-
-                if pid in seen_pids:
+                if not cmdline or pid in seen_pids:
                     continue
 
                 seen_pids.add(pid)
 
                 cmd = " ".join(cmdline)
+                now = time.time()
 
                 log(PROCESS_LOG, f"{pid} | {name} | {cmd}")
 
+                # Track recent process execution
+                recent_processes.append((now, name, cmd))
+
+                # Temporal correlation: curl -> bash within 1 second
+                if name in ("bash", "sh"):
+                    for t, pname, pcmd in recent_processes:
+                        if pname in ("curl", "wget") and now - t < 1:
+                            log(
+                                ALERT_LOG,
+                                "[HIGH] process-chain | downloader followed by shell (possible pipe execution) | curl/wget -> shell"
+                            )
+                            break
+
+                # LOLBins logic
                 if not is_lolbin(name):
                     continue
 
