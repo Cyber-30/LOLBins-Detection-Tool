@@ -2,22 +2,18 @@ import psutil
 import os
 import time
 from collections import deque
-from monitor.rules import map_mitre
+from monitor.rules import map_mitre, is_lolbin, is_noise, detect_malicious, is_trusted_url
 from monitor.command_parser import parse_command
-from monitor.rules import is_lolbin, is_noise, detect_malicious
 
 PROCESS_LOG = "logs/process.log"
 INFO_LOG = "logs/info.log"
 ALERT_LOG = "logs/alerts.log"
-mitre = map_mitre(signals)
 
 BASH_HISTORY = os.path.expanduser("~/.bash_history")
 
 seen_pids = set()
 alerted_chains = set()
-
 recent_processes = deque(maxlen=20)
-
 history_offset = 0
 
 
@@ -36,8 +32,8 @@ def init_shell_history():
 
 
 def check_shell_history():
+    """Detect dangerous shell commands from new bash history entries"""
     global history_offset
-
     try:
         with open(BASH_HISTORY, "r") as f:
             lines = f.readlines()
@@ -47,14 +43,22 @@ def check_shell_history():
 
         for line in new_lines:
             line = line.strip()
-
             if not line:
                 continue
 
             if "|" in line and ("curl" in line or "wget" in line) and ("bash" in line or "sh" in line):
+                parsed = parse_command(line)
+                # Skip if only trusted URLs
+                urls = parsed.get("urls", [])
+                if urls and all(is_trusted_url(u) for u in urls):
+                    continue
+
+                signals = {"shell-history", "pipe", "downloader", "external_url"}
+                mitre = map_mitre(signals)
                 log(
                     ALERT_LOG,
-                    f"[HIGH] shell-history | remote command execution via pipe | {line}"
+                    f"[HIGH] shell-history | remote command execution via pipe | "
+                    f"{line} | signals={','.join(signals)} | MITRE={','.join(mitre)}"
                 )
 
     except Exception:
@@ -62,6 +66,7 @@ def check_shell_history():
 
 
 def detect_process_chain(now, name):
+    """Detect temporal chain: curl/wget → bash/sh within 2 seconds"""
     if name not in ("bash", "sh"):
         return False
 
@@ -94,33 +99,57 @@ def monitor_processes():
                     continue
 
                 seen_pids.add(pid)
-
                 cmd = " ".join(cmdline)
                 now = time.time()
 
                 log(PROCESS_LOG, f"{pid} | {name} | {cmd}")
-
                 recent_processes.append((now, name, cmd))
 
+                # Detect process chain
                 if detect_process_chain(now, name):
+                    signals = {"temporal_chain", "downloader", "shell"}
+                    mitre = map_mitre(signals)
                     log(
                         ALERT_LOG,
-                        "[HIGH] process-chain | downloader followed by shell (possible pipe execution) | curl/wget -> shell"
+                        f"[HIGH] process-chain | downloader followed by shell (possible pipe execution) | "
+                        f"{cmd} | signals={','.join(signals)} | MITRE={','.join(mitre)}"
                     )
 
+                # Skip non-LOLBin binaries
                 if not is_lolbin(name):
                     continue
-
                 if is_noise(cmd):
                     continue
 
+                # Parse command
                 parsed = parse_command(cmd)
+
+                # False-positive filtering: skip trusted URLs
+                urls = parsed.get("urls", [])
+                if urls and all(is_trusted_url(u) for u in urls):
+                    continue
+
+                # Detect malicious behavior
                 severity, reason = detect_malicious(name, parsed)
+
+                signals = {name}
+                if parsed.get("pipe"):
+                    signals.add("pipe")
+                if urls:
+                    signals.add("external_url")
+                if severity != "INFO" and name in ("bash", "sh"):
+                    signals.add("shell")
+
+                mitre = map_mitre(signals)
 
                 if severity == "INFO":
                     log(INFO_LOG, f"[INFO] {name} | {parsed}")
                 else:
-                    log(ALERT_LOG, f"[{severity}] {name} | {reason} | {parsed}")
+                    log(
+                        ALERT_LOG,
+                        f"[{severity}] {name} | {reason} | {parsed} | "
+                        f"signals={','.join(signals)} | MITRE={','.join(mitre)}"
+                    )
 
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
