@@ -23,18 +23,19 @@ def log(file, message):
         f.write(message + "\n")
 
 def check_shell_history():
-    """
-    Best-effort detection of pipe-based execution using bash history.
-    Not fully reliable, but useful when available.
-    """
+    global history_offset
+
     try:
         with open(BASH_HISTORY, "r") as f:
-            lines = f.readlines()[-20:]
+            lines = f.readlines()
 
-        for line in lines:
+        new_lines = lines[history_offset:]
+        history_offset = len(lines)
+
+        for line in new_lines:
             line = line.strip()
 
-            if not line or line in seen_history:
+            if not line:
                 continue
 
             if "|" in line and ("curl" in line or "wget" in line) and ("bash" in line or "sh" in line):
@@ -42,10 +43,10 @@ def check_shell_history():
                     ALERT_LOG,
                     f"[HIGH] shell-history | remote command execution via pipe | {line}"
                 )
-                seen_history.add(line)
 
     except Exception:
         pass
+
 
 def monitor_processes():
     while True:
