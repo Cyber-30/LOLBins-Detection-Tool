@@ -13,14 +13,26 @@ ALERT_LOG = "logs/alerts.log"
 BASH_HISTORY = os.path.expanduser("~/.bash_history")
 
 seen_pids = set()
-seen_history = set()
+alerted_chains = set()
 
-# Store recent processes for temporal correlation
-recent_processes = deque(maxlen=100)
+recent_processes = deque(maxlen=20)
+
+history_offset = 0
+
 
 def log(file, message):
     with open(file, "a") as f:
         f.write(message + "\n")
+
+
+def init_shell_history():
+    global history_offset
+    try:
+        with open(BASH_HISTORY, "r") as f:
+            history_offset = len(f.readlines())
+    except Exception:
+        history_offset = 0
+
 
 def check_shell_history():
     global history_offset
@@ -48,9 +60,27 @@ def check_shell_history():
         pass
 
 
+def detect_process_chain(now, name):
+    if name not in ("bash", "sh"):
+        return False
+
+    for t, pname, pcmd in reversed(recent_processes):
+        if now - t > 2:
+            break
+
+        if pname in ("curl", "wget"):
+            key = f"{pname}->{name}"
+            if key not in alerted_chains:
+                alerted_chains.add(key)
+                return True
+
+    return False
+
+
 def monitor_processes():
+    init_shell_history()
+
     while True:
-        # Best-effort shell telemetry
         check_shell_history()
 
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
@@ -69,20 +99,14 @@ def monitor_processes():
 
                 log(PROCESS_LOG, f"{pid} | {name} | {cmd}")
 
-                # Track recent process execution
                 recent_processes.append((now, name, cmd))
 
-                # Temporal correlation: curl -> bash within 1 second
-                if name in ("bash", "sh"):
-                    for t, pname, pcmd in recent_processes:
-                        if pname in ("curl", "wget") and now - t < 1:
-                            log(
-                                ALERT_LOG,
-                                "[HIGH] process-chain | downloader followed by shell (possible pipe execution) | curl/wget -> shell"
-                            )
-                            break
+                if detect_process_chain(now, name):
+                    log(
+                        ALERT_LOG,
+                        "[HIGH] process-chain | downloader followed by shell (possible pipe execution) | curl/wget -> shell"
+                    )
 
-                # LOLBins logic
                 if not is_lolbin(name):
                     continue
 
@@ -101,6 +125,7 @@ def monitor_processes():
                 continue
 
         time.sleep(0.3)
+
 
 if __name__ == "__main__":
     monitor_processes()
