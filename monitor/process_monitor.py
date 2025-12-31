@@ -57,7 +57,6 @@ def check_shell_history():
                 parsed = parse_command(line)
                 urls = parsed.get("urls", [])
 
-                # Do NOT alert on fully trusted URLs
                 if urls and all(is_trusted_url(u) for u in urls):
                     continue
 
@@ -66,8 +65,8 @@ def check_shell_history():
 
                 log(
                     ALERT_LOG,
-                    f"[HIGH] shell-history | remote command execution via pipe | "
-                    f"{line} | signals={','.join(signals)} | MITRE={','.join(mitre)}"
+                    f"[HIGH] shell-history | {line} | "
+                    f"signals={','.join(signals)} | MITRE={','.join(mitre)}"
                 )
 
     except Exception:
@@ -76,14 +75,13 @@ def check_shell_history():
 
 def detect_process_chain(now, name):
     if name not in ("bash", "sh"):
-        return False
+        return None
 
     for t, pname, pcmd in reversed(recent_processes):
         if now - t > 2:
             break
 
         if pname in ("curl", "wget"):
-            # Require execution intent
             if (
                 "| bash" in pcmd
                 or "| sh" in pcmd
@@ -94,10 +92,9 @@ def detect_process_chain(now, name):
                 key = f"{pname}->{name}"
                 if key not in alerted_chains:
                     alerted_chains.add(key)
-                    return True
+                    return pcmd, name
 
-    return False
-
+    return None
 
 
 def monitor_processes():
@@ -122,15 +119,17 @@ def monitor_processes():
                 log(PROCESS_LOG, f"{pid} | {name} | {cmd}")
                 recent_processes.append((now, name, cmd))
 
-                # === Process-chain detection ===
-                if detect_process_chain(now, name):
+                # === FIXED Process-chain detection ===
+                chain = detect_process_chain(now, name)
+                if chain:
+                    downloader_cmd, shell_name = chain
                     signals = {"temporal_chain", "downloader", "shell"}
                     mitre = map_mitre(signals)
 
                     log(
                         ALERT_LOG,
-                        f"[HIGH] process-chain | downloader followed by shell | "
-                        f"{name} | signals={','.join(signals)} | MITRE={','.join(mitre)}"
+                        f"[HIGH] process-chain | {downloader_cmd} -> {shell_name} | "
+                        f"signals={','.join(signals)} | MITRE={','.join(mitre)}"
                     )
 
                 # === LOLBin logic ===
@@ -142,12 +141,10 @@ def monitor_processes():
 
                 parsed = parse_command(cmd)
 
-                # Always log INFO once
+                # Always log INFO
                 log(INFO_LOG, f"[INFO] {name} | {parsed}")
 
                 urls = parsed.get("urls", [])
-
-                # Skip ALERTS for trusted URLs
                 if urls and all(is_trusted_url(u) for u in urls):
                     continue
 
