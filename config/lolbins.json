@@ -1,0 +1,11 @@
+{
+  "curl": {},
+  "wget": {},
+  "bash": {},
+  "sh": {},
+  "nc": {},
+  "python": {},
+  "perl": {},
+  "powershell": {},
+  "certutil": {}
+}
